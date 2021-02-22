@@ -34,8 +34,8 @@ type ConfigRequest struct {
 	GitURL        string            `json:"git_url,required" description:"The git url of your configuraltion"`
 	VariableStore *VariablesRequest `json:"variablestore,omitempty" description:"The environments' variable store"`
 	LOGLEVEL      string            `json:"log_level,omitempty" description:"The log level defing by user."`
-	Terraformer   string            `json:"terraformer,omitempty" description:"The terraformer."`
-	Service       string            `json:"service,omitempty" description:"The terraformer services."`
+	// Terraformer   string            `json:"terraformer,omitempty" description:"The terraformer."`
+	Service string `json:"service,omitempty" description:"The terraformer services."`
 }
 
 // ConfigResponse -
@@ -131,32 +131,6 @@ func ConfHandler(s *mgo.Session) func(w http.ResponseWriter, r *http.Request) {
 
 		output, err := json.MarshalIndent(response, "", "  ")
 		if err != nil {
-			return
-		}
-
-		if msg.Terraformer != "" {
-			//Run 'go mod vendor' on Terraformer repo
-			confDir := path.Join(currentDir, configName)
-
-			b = make([]byte, 10)
-			rand.Read(b)
-			randomID := fmt.Sprintf("%x", b)
-
-			err = TerraformerVendorSync(confDir, configName, nil, randomID)
-			if err != nil {
-				http.Error(w, err.Error(), 500)
-				return
-			}
-
-			//Build the terraformer binary
-			err = BuildTerraformer(confDir, configName, nil, randomID)
-			if err != nil {
-				http.Error(w, err.Error(), 500)
-				return
-			}
-
-			w.Header().Set("content-type", "application/json")
-			w.Write(output)
 			return
 		}
 
