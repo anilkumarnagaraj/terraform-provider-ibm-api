@@ -4,8 +4,6 @@
 package utils
 
 import (
-	"bufio"
-	"bytes"
 	"crypto/rand"
 	"encoding/json"
 	"fmt"
@@ -17,6 +15,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/gorilla/mux"
 	mgo "gopkg.in/mgo.v2"
 	"gopkg.in/mgo.v2/bson"
@@ -157,18 +157,6 @@ func ConfHandler(s *mgo.Session) func(w http.ResponseWriter, r *http.Request) {
 
 			w.Header().Set("content-type", "application/json")
 			w.Write(output)
-			return
-		}
-
-		confDir := path.Join(currentDir, configName)
-
-		b = make([]byte, 10)
-		rand.Read(b)
-		randomID := fmt.Sprintf("%x", b)
-
-		err = TerraformInit(confDir, configName, &planTimeOut, randomID)
-		if err != nil {
-			http.Error(w, err.Error(), 500)
 			return
 		}
 
@@ -812,18 +800,22 @@ func TerraformerImportHandler(s *mgo.Session) func(w http.ResponseWriter, r *htt
 			return
 		}
 		// Read Query Parameter
-		services := r.URL.Query().Get("service")
-		configName := "terraformer"
-		confDir := path.Join(currentDir, configName)
+		configName := r.URL.Query().Get("repo_name")
+		services := r.URL.Query().Get("services")
+		command := r.URL.Query().Get("command")
 
 		b = make([]byte, 10)
 		rand.Read(b)
 		randomID := fmt.Sprintf("%x", b)
 
+		//Clean up discovery directory
+		discoveryDir := currentDir + "/" + "discovery"
+		removeDir(discoveryDir)
+
 		go func() {
 
 			// Import the terraform resources & state files.
-			err = TerraformerImport(confDir, services, configName, &planTimeOut, randomID)
+			err = TerraformerImport(currentDir, services, configName, &planTimeOut, randomID)
 			if err != nil {
 				statusResponse.Error = err.Error()
 				statusResponse.Status = "Failed"
@@ -837,69 +829,38 @@ func TerraformerImportHandler(s *mgo.Session) func(w http.ResponseWriter, r *htt
 				return
 			}
 
-			b = make([]byte, 10)
-			rand.Read(b)
+			//Merge state files and templates
+			if command == "merge" {
+				repoDir := currentDir + "/" + configName
+				//Backup repo TF file.
+				err = Copy(repoDir+"/terraform.tfstate", repoDir+"/terraform.tfstate_backup")
+				if err != nil {
+					http.Error(w, err.Error(), 500)
+					return
+				}
 
-			//Create terraform wrapper directory
-			CreateTerraformWrapper()
+				//Read state file from repo directory
+				terraformStateFile := repoDir + "/terraform.tfstate"
+				terraformObj := ReadTerraformStateFile(terraformStateFile)
 
-			//Merge state files and templates in services
-			service := strings.Split(services, ",")
-			if len(service) > 0 {
-				for _, srv := range service {
-					randomID := fmt.Sprintf("%x", b)
-					srvDir := confDir + "/generated" + "/ibm/" + srv
+				//Read state file from discovery directory
+				terraformerSateFile := discoveryDir + "/terraform.tfstate"
+				terraformerObj := ReadTerraformerStateFile(terraformerSateFile)
 
-					//Backup TF file.
-					err = Copy(srvDir+"/terraform.tfstate", srvDir+"/terraform.tfstate_backup")
-					if err != nil {
-						http.Error(w, err.Error(), 500)
-						return
-					}
-
-					//version fix in provider
-					ReplaceStr(srvDir+"/provider.tf", "version = \"\"", "")
-
-					//List resources in state file
-					err = TerraformerResourceList(srvDir, configName, nil, randomID)
-					if err != nil {
-						statusResponse.Error = err.Error()
-						statusResponse.Status = "Failed"
-						http.Error(w, err.Error(), 500)
-						return
-					}
-
-					//Read resources from state file
-					file, err := os.Open(logDir + randomID + ".out")
-					if err != nil {
-						statusResponse.Error = err.Error()
-						statusResponse.Status = "Failed"
-						log.Fatal(err)
-						return
-					}
-					defer file.Close()
-
-					//Merge state files resources to new state file
-					scanner := bufio.NewScanner(file)
-					for scanner.Scan() {
-						if len(scanner.Text()) > 0 {
-							err = TerraformMoveResource(srvDir, terraformerfWrapperDir+"/terraform.tfstate", scanner.Text(), configName, nil, randomID)
-							if err != nil {
-								statusResponse.Status = "Failed"
-							}
-						}
-					}
-
-					//Merge resource TF file into main.tf
-					err = mergeResources(srvDir)
-					if err != nil {
-						statusResponse.Status = "Failed"
-					}
+				// comparing state files
+				if cmp.Equal(terraformObj, terraformerObj, cmpopts.IgnoreFields(Resource{}, "ResourceName")) {
+					fmt.Println("State is equal..")
+				} else {
+					fmt.Println("State is not equal..")
+					MergeStateFile(terraformObj, terraformerObj, terraformerSateFile, terraformStateFile, currentDir, "", randomID, &planTimeOut)
 				}
 			} else {
-				statusResponse.Error = "Provide two services name to merge the state files."
-				statusResponse.Status = "Failed"
-				return
+				//Backup  TF state file in discovery directory.
+				err = Copy(discoveryDir+"/terraform.tfstate", discoveryDir+"/terraform.tfstate_backup")
+				if err != nil {
+					http.Error(w, err.Error(), 500)
+					return
+				}
 			}
 
 			statusResponse.Status = "Completed"
@@ -1008,19 +969,4 @@ func TerraformerStateHandler(s *mgo.Session) func(w http.ResponseWriter, r *http
 		w.Write(output)
 
 	}
-}
-
-// replaceStrInFile ..
-func replaceStrInFile(filepath, replaceOld, replaceNew string) error {
-	input, err := ioutil.ReadFile(filepath)
-	if err != nil {
-		return err
-	}
-
-	output := bytes.Replace(input, []byte(replaceOld), []byte(replaceNew), -1)
-	if err = ioutil.WriteFile(filepath, output, 0666); err != nil {
-		return err
-	}
-
-	return nil
 }

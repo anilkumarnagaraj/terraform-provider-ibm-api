@@ -527,9 +527,22 @@ var apiDescriptionsJson = map[string]string{"v1": `{
                     "summary": "Merge TF state file and resources.",
                     "parameters": [
                         {
-                            "paramType": "path",
+                            "paramType": "query",
                             "name": "repo_name",
                             "description": "repo name",
+                            "dataType": "string",
+                            "type": "string",
+                            "default": "discovery",
+                            "format": "",
+                            "allowMultiple": false,
+                            "required": true,
+                            "minimum": 0,
+                            "maximum": 0
+                        },
+                        {
+                            "paramType": "query",
+                            "name": "services",
+                            "description": "services",
                             "dataType": "string",
                             "type": "string",
                             "format": "",
@@ -540,13 +553,13 @@ var apiDescriptionsJson = map[string]string{"v1": `{
                         },
                         {
                             "paramType": "query",
-                            "name": "service",
-                            "description": "service",
+                            "name": "command",
+                            "description": "Command",
                             "dataType": "string",
                             "type": "string",
                             "format": "",
                             "allowMultiple": false,
-                            "required": true,
+                            "required": false,
                             "minimum": 0,
                             "maximum": 0
                         }
@@ -790,12 +803,6 @@ var apiDescriptionsJson = map[string]string{"v1": `{
                 "git_url": {
                     "type": "string",
                     "description": "The git url of your configuraltion",
-                    "items": {},
-                    "format": ""
-                },
-                "terraformer": {
-                    "type": "string",
-                    "description": "Terraformer wrapper",
                     "items": {},
                     "format": ""
                 },

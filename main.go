@@ -61,7 +61,8 @@ func main() {
 
 	config := utils.GetConfiguration()
 
-	session, err := mgo.Dial(fmt.Sprintf("%s:%s@%s:%d", config.Mongo.UserName, config.Mongo.Password, config.Mongo.Host, config.Mongo.Port))
+	//session, err := mgo.Dial(fmt.Sprintf("%s:%s@%s:%d", config.Mongo.UserName, config.Mongo.Password, config.Mongo.Host, config.Mongo.Port))
+	session, err := mgo.Dial("localhost")
 	if err != nil {
 		log.Fatalln("Could not create mongo db session", err)
 	}
