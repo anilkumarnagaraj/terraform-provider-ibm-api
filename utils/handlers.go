@@ -100,63 +100,42 @@ func ConfHandler(s *mgo.Session) func(w http.ResponseWriter, r *http.Request) {
 		// Unmarshal
 		var msg ConfigRequest
 		var response ConfigResponse
+		var configName string
 		err = json.Unmarshal(b, &msg)
 		if err != nil {
 			http.Error(w, err.Error(), 500)
 			return
 		}
-		log.Println(msg.GitURL)
+
 		if msg.GitURL == "" {
-			w.WriteHeader(400)
-			w.Write([]byte("EMPTY GIT URL"))
-			return
+			//Create discovery directory to import tf/state file of services
+			configName = "discovery"
+			err = CreateDir(currentDir + "/" + configName)
+			if err != nil {
+				http.Error(w, err.Error(), 500)
+				return
+			}
+		} else {
+			log.Println(msg.GitURL)
+			log.Println("Will clone git repo")
+			_, configName, err := cloneRepo(msg)
+			if err != nil {
+				log.Println("Eror Cloning repo..")
+				log.Printf("err : %v\n", err)
+				return
+			}
+			log.Println("\n", configName)
 		}
 
 		if msg.LOGLEVEL != "" {
 			os.Setenv("TF_LOG", msg.LOGLEVEL)
 		}
 
-		log.Println("Will clone git repo")
-
-		_, configName, err := cloneRepo(msg)
-		if err != nil {
-			log.Println("Eror Cloning repo..")
-			log.Printf("err : %v\n", err)
-			return
-		}
-		log.Println("\n", configName)
-
 		response.ConfigName = configName
 		log.Println(response)
 
 		output, err := json.MarshalIndent(response, "", "  ")
 		if err != nil {
-			return
-		}
-
-		if msg.Terraformer != "" {
-			//Run 'go mod vendor' on Terraformer repo
-			confDir := path.Join(currentDir, configName)
-
-			b = make([]byte, 10)
-			rand.Read(b)
-			randomID := fmt.Sprintf("%x", b)
-
-			err = TerraformerVendorSync(confDir, configName, nil, randomID)
-			if err != nil {
-				http.Error(w, err.Error(), 500)
-				return
-			}
-
-			//Build the terraformer binary
-			err = BuildTerraformer(confDir, configName, nil, randomID)
-			if err != nil {
-				http.Error(w, err.Error(), 500)
-				return
-			}
-
-			w.Header().Set("content-type", "application/json")
-			w.Write(output)
 			return
 		}
 
@@ -654,125 +633,6 @@ func GetActionDetailsHandler(s *mgo.Session) func(w http.ResponseWriter, r *http
 	}
 }
 
-//TerraformerHandler handles request to kickoff git clone of the repo.
-// @Title TerraformerHandler
-// @Description clone the terraformer repo
-// @Accept  json
-// @Produce  json
-// @Param   body     body     TerraformConfigRequest   true "request body"
-// @Success 200 {object} ConfigResponse
-// @Failure 500 {object} string
-// @Failure 400 {object} string
-// @Router /v1/configuration [post]
-func TerraformerHandler(s *mgo.Session) func(w http.ResponseWriter, r *http.Request) {
-	return func(w http.ResponseWriter, r *http.Request) {
-		session := s.Copy()
-		defer session.Close()
-
-		var actionResponse ActionResponse
-		var statusResponse StatusResponse
-
-		// Read body
-		b, err := ioutil.ReadAll(r.Body)
-		defer r.Body.Close()
-		if err != nil {
-			http.Error(w, err.Error(), 500)
-			return
-		}
-
-		// Unmarshal
-		var msg ConfigRequest
-		err = json.Unmarshal(b, &msg)
-		if err != nil {
-			http.Error(w, err.Error(), 500)
-			return
-		}
-
-		if msg.GitURL == "" {
-			w.WriteHeader(400)
-			w.Write([]byte("EMPTY GIT URL"))
-			return
-		}
-
-		b = make([]byte, 10)
-		rand.Read(b)
-		randomID := fmt.Sprintf("%x", b)
-		configName := ""
-		go func() {
-			_, configName, err := cloneRepo(msg)
-			if err != nil {
-				statusResponse.Error = err.Error()
-				statusResponse.Status = "Failed"
-
-				// Update the status in the db in case it is failed
-				err = UpdateMongodb(s, randomID, statusResponse.Status)
-				if err != nil {
-					http.Error(w, err.Error(), 500)
-					return
-				}
-				return
-			}
-			log.Println("\n", configName)
-
-			//Run 'go mod vendor' on Terraformer repo
-			confDir := path.Join(currentDir, configName)
-			err = TerraformerVendorSync(confDir, configName, nil, randomID)
-			if err != nil {
-				statusResponse.Error = err.Error()
-				statusResponse.Status = "Failed"
-
-				// Update the status in the db in case it is failed
-				err = UpdateMongodb(s, randomID, statusResponse.Status)
-				if err != nil {
-					http.Error(w, err.Error(), 500)
-					return
-				}
-				return
-			}
-
-			//Build the terraformer binary
-			err = BuildTerraformer(confDir, configName, nil, randomID)
-			if err != nil {
-				statusResponse.Error = err.Error()
-				statusResponse.Status = "Failed"
-
-				// Update the status in the db in case it is failed
-				err = UpdateMongodb(s, randomID, statusResponse.Status)
-				if err != nil {
-					http.Error(w, err.Error(), 500)
-					return
-				}
-				return
-			}
-
-			statusResponse.Status = "Completed"
-
-			// Update the status in the db in case it is completed
-			err = UpdateMongodb(s, randomID, statusResponse.Status)
-
-		}()
-
-		w.WriteHeader(200)
-
-		actionResponse.Action = "clone"
-		actionResponse.ConfigName = configName
-		actionResponse.ActionID = randomID
-		actionResponse.Timestamp = time.Now().Format("20060102150405")
-		actionResponse.Status = "In-Progress"
-
-		// Make an entry in the db
-		InsertMongodb(s, actionResponse)
-
-		output, err := json.MarshalIndent(actionResponse, "", "  ")
-		if err != nil {
-			http.Error(w, err.Error(), 500)
-			return
-		}
-		w.Header().Set("content-type", "application/json")
-		w.Write(output)
-	}
-}
-
 //TerraformerImportHandler handles request to get the terraform resources & state file.
 // @Title TerraformerImportHandler
 // @Description Get status of the action.
@@ -803,6 +663,7 @@ func TerraformerImportHandler(s *mgo.Session) func(w http.ResponseWriter, r *htt
 		configName := r.URL.Query().Get("repo_name")
 		services := r.URL.Query().Get("services")
 		command := r.URL.Query().Get("command")
+		tags := r.URL.Query().Get("tags")
 
 		b = make([]byte, 10)
 		rand.Read(b)
@@ -810,27 +671,50 @@ func TerraformerImportHandler(s *mgo.Session) func(w http.ResponseWriter, r *htt
 
 		//Clean up discovery directory
 		discoveryDir := currentDir + "/" + "discovery"
-		removeDir(discoveryDir)
+		err = RemoveDir(discoveryDir + "/*")
+		if err != nil {
+			http.Error(w, err.Error(), 500)
+			return
+		}
 
 		go func() {
+			if command == "default" {
+				err = DiscoveryImport(configName, services, tags, randomID, discoveryDir)
+				if err != nil {
+					statusResponse.Error = err.Error()
+					statusResponse.Status = "Failed"
 
-			// Import the terraform resources & state files.
-			err = TerraformerImport(currentDir, services, configName, &planTimeOut, randomID)
-			if err != nil {
-				statusResponse.Error = err.Error()
-				statusResponse.Status = "Failed"
-
-				// Update the status in the db in case it is failed
+					// Update the status in the db in case it is failed
+					err = UpdateMongodb(s, randomID, statusResponse.Status)
+					if err != nil {
+						http.Error(w, err.Error(), 500)
+						return
+					}
+					return
+				}
+				statusResponse.Status = "Completed"
+				// Update the status in the db in case it is completed
 				err = UpdateMongodb(s, randomID, statusResponse.Status)
 				if err != nil {
 					http.Error(w, err.Error(), 500)
 					return
 				}
-				return
-			}
+			} else if command == "merge" {
+				err = DiscoveryImport(configName, services, tags, randomID, discoveryDir)
+				if err != nil {
+					statusResponse.Error = err.Error()
+					statusResponse.Status = "Failed"
 
-			//Merge state files and templates
-			if command == "merge" {
+					// Update the status in the db in case it is failed
+					err = UpdateMongodb(s, randomID, statusResponse.Status)
+					if err != nil {
+						http.Error(w, err.Error(), 500)
+						return
+					}
+					return
+				}
+
+				//Merge state files and templates
 				repoDir := currentDir + "/" + configName
 				//Backup repo TF file.
 				err = Copy(repoDir+"/terraform.tfstate", repoDir+"/terraform.tfstate_backup")
@@ -839,43 +723,50 @@ func TerraformerImportHandler(s *mgo.Session) func(w http.ResponseWriter, r *htt
 					return
 				}
 
-				//Read state file from repo directory
+				//Read state file from local repo directory
 				terraformStateFile := repoDir + "/terraform.tfstate"
-				terraformObj := ReadTerraformStateFile(terraformStateFile)
+				terraformObj := ReadTerraformStateFile(terraformStateFile, "")
 
-				//Read state file from discovery directory
+				//Read state file from discovery repo directory
 				terraformerSateFile := discoveryDir + "/terraform.tfstate"
-				terraformerObj := ReadTerraformerStateFile(terraformerSateFile)
+				terraformerObj := ReadTerraformStateFile(terraformerSateFile, "discovery")
 
 				// comparing state files
 				if cmp.Equal(terraformObj, terraformerObj, cmpopts.IgnoreFields(Resource{}, "ResourceName")) {
-					fmt.Println("State is equal..")
+					log.Printf("# Terraform configuration/state is equal !!\n")
 				} else {
-					fmt.Println("State is not equal..")
-					MergeStateFile(terraformObj, terraformerObj, terraformerSateFile, terraformStateFile, currentDir, "", randomID, &planTimeOut)
+					log.Printf("# Terraform configuration/state is not equal !!\n")
+					err = MergeStateFile(terraformObj, terraformerObj, terraformerSateFile, terraformStateFile, currentDir, "", randomID, &planTimeOut)
+					if err != nil {
+						http.Error(w, err.Error(), 500)
+						return
+					}
 				}
-			} else {
-				//Backup  TF state file in discovery directory.
-				err = Copy(discoveryDir+"/terraform.tfstate", discoveryDir+"/terraform.tfstate_backup")
+				statusResponse.Status = "Completed"
+				// Update the status in the db in case it is completed
+				err = UpdateMongodb(s, randomID, statusResponse.Status)
 				if err != nil {
 					http.Error(w, err.Error(), 500)
 					return
 				}
 			}
-
-			statusResponse.Status = "Completed"
-			// Update the status in the db in case it is completed
-			err = UpdateMongodb(s, randomID, statusResponse.Status)
-
 		}()
 
-		w.WriteHeader(200)
+		if command != "merge" && command != "default" {
+			errMsg := "command value not supported. Please provide 'default' or 'merge' as command value!!"
+			log.Printf("# '%s' %s ", command, errMsg)
+
+			w.WriteHeader(500)
+			actionResponse.Status = errMsg
+		} else {
+			w.WriteHeader(200)
+			actionResponse.Status = "In-Progress"
+		}
 
 		actionResponse.Action = "import"
 		actionResponse.ConfigName = configName
 		actionResponse.ActionID = randomID
 		actionResponse.Timestamp = time.Now().Format("20060102150405")
-		actionResponse.Status = "In-Progress"
 
 		// Make an entry in the db
 		InsertMongodb(s, actionResponse)

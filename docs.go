@@ -546,7 +546,7 @@ var apiDescriptionsJson = map[string]string{"v1": `{
                             "dataType": "string",
                             "type": "string",
                             "format": "",
-                            "allowMultiple": false,
+                            "allowMultiple": true,
                             "required": true,
                             "minimum": 0,
                             "maximum": 0
@@ -559,6 +559,18 @@ var apiDescriptionsJson = map[string]string{"v1": `{
                             "type": "string",
                             "format": "",
                             "allowMultiple": false,
+                            "required": true,
+                            "minimum": 0,
+                            "maximum": 0
+                        },
+                        {
+                            "paramType": "query",
+                            "name": "tags",
+                            "description": "Filter parameters.  ex: region:us-east,resource_group:default",
+                            "dataType": "string",
+                            "type": "string",
+                            "format": "",
+                            "allowMultiple": true,
                             "required": false,
                             "minimum": 0,
                             "maximum": 0
