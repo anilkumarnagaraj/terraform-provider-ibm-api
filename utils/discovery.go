@@ -88,11 +88,11 @@ func ReadTerraformStateFile(terraformStateFile, repoType string) map[string]inte
 }
 
 // DiscoveryImport ..
-func DiscoveryImport(configName, services, tags, randomID, discoveryDir string) error {
-	log.Printf("# let's import the resources (%s) 2/6:\n", services)
+func DiscoveryImport(configName string, opts []string, randomID, discoveryDir string) error {
+	log.Printf("# let's import the resources (%s) 2/6:\n", opts)
 
 	// Import the terraform resources & state files.
-	err := TerraformerImport(discoveryDir, services, tags, configName, &planTimeOut, randomID)
+	err := TerraformerImport(discoveryDir, opts, configName, &planTimeOut, randomID)
 	if err != nil {
 		return err
 	}
