@@ -88,11 +88,11 @@ func ReadTerraformStateFile(terraformStateFile, repoType string) map[string]inte
 }
 
 // DiscoveryImport ..
-func DiscoveryImport(configName, services, tags, randomID, discoveryDir string) error {
-	log.Printf("# let's import the resources (%s) 2/6:\n", services)
+func DiscoveryImport(configName string, opts []string, randomID, discoveryDir string) error {
+	log.Printf("# let's import the resources (%s) 2/6:\n", opts)
 
 	// Import the terraform resources & state files.
-	err := TerraformerImport(discoveryDir, services, tags, configName, &planTimeOut, randomID)
+	err := TerraformerImport(discoveryDir, opts, configName, &planTimeOut, randomID)
 	if err != nil {
 		return err
 	}
@@ -175,7 +175,7 @@ func MergeStateFile(terraformfObj, terraformerObj map[string]interface{}, src, d
 		discovery_resource := dValue.(Resource).ResourceType + "." + dValue.(Resource).ID
 
 		//Check discovery resource exist in local repo.
-		//If resource not exist, Move the discovery resource to local repo
+		//If resource not exist, copy the discovery resource to resourceList for moving to local repo
 		if terraformfObj[discovery_resource] == nil {
 			discovery_resource := dValue.(Resource).ResourceType + "." + dValue.(Resource).ResourceName
 			resourceList = append(resourceList, discovery_resource)
@@ -185,34 +185,32 @@ func MergeStateFile(terraformfObj, terraformerObj map[string]interface{}, src, d
 		}
 
 		//Check discovery resource has got depends_on attribute
-		//If depends_on attribute exist in discovery resource, Get the depends_on resource name from local repo(if resource exist) & update in discovery state file.
+		//If depends_on attribute exist , Get depends_on resource name from local repo(if exist) & update in discovery state file.
 		if dValue.(Resource).DependsOn != nil {
 			var dependsOn []string
 			for i, d := range dValue.(Resource).DependsOn {
 				parent_resource := terraformerObj[d].(Resource).ResourceType + "." + terraformerObj[d].(Resource).ID
 
-				//Get parent resource name from local repo
+				//Get parent resource from local repo
 				if terraformfObj[parent_resource] != nil {
 					//Get depends_on resource deails from local repo to update in discovery state file
 					parent_resource = terraformfObj[parent_resource].(Resource).ResourceType + "." + terraformfObj[parent_resource].(Resource).ResourceName
 					dependsOn = append(dependsOn, parent_resource)
 
-					//Update depends_on parameter in discovery state file content
+					//Update depends_on parameter in discovery state file
 					statefilecontent, err = sjson.Set(statefilecontent, "resources."+strconv.Itoa(dValue.(Resource).ResourceIndex)+".instances.0.dependencies."+strconv.Itoa(i), parent_resource)
 					if err != nil {
 						return err
 					}
 				}
 			}
-
-			// Copy the state file content changes back to discovery repo state file
-			if len(dependsOn) > 0 {
-				err = ioutil.WriteFile(src, []byte(statefilecontent), 0644)
-				if err != nil {
-					return err
-				}
-			}
 		}
+	}
+
+	//Copy updated state file content back to disovery repo
+	err = ioutil.WriteFile(src, []byte(statefilecontent), 0644)
+	if err != nil {
+		return err
 	}
 
 	// Move resource from discovery repo to local repo state file
