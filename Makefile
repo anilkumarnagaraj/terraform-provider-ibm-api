@@ -30,10 +30,9 @@ vendor:
 
 # Not tested
 .PHONY: swagger
-swagger:
-	go generate ./server
+swagger: vendor
+	go generate main.go
 	cd ./swagger; statik -src=./ui -f
-	go mod vendor
 	swagger generate spec -m -o ./swagger/ui/swagger.json
 	swagger validate ./swagger/ui/swagger.json
 	cd ./swagger; statik -src=./ui -f
@@ -138,3 +137,14 @@ run-mac: environment environment2
 	API_MONGO_USERNAME=${MONGO_USER} \
 	API_MONGO_PASSWORD=${MONGO_PASSWORD} \
 	go run .
+
+
+#go install cmd/discovery/*.go
+.PHONY: build-cli
+build-cli: 
+	cd cmd/discovery; go build
+
+.PHONY: install-cli
+install-cli:
+	cd cmd/discovery; go install
+	

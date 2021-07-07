@@ -6,3 +6,8 @@ vendor/*
 
 # vs code for dev debugging
 .vscode/*
+
+
+# # binary 
+/discovery
+cmd/discovery/discovery

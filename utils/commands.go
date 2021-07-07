@@ -12,8 +12,9 @@ import (
 
 var stdouterr []byte
 
-//It will clone the git repo which contains the configuration file.
-func cloneRepo(msg ConfigRequest) ([]byte, string, error) {
+// This will clone the git repo which contains the configuration file.
+// Exported as need by cmd
+func CloneRepo(msg ConfigRequest) ([]byte, string, error) {
 	gitURL := msg.GitURL
 	urlPath, err := url.Parse(msg.GitURL)
 	if err != nil {
@@ -24,7 +25,9 @@ func cloneRepo(msg ConfigRequest) ([]byte, string, error) {
 	p := baseName[:len(baseName)-len(extName)]
 	if _, err := os.Stat(currentDir + "/" + p); err == nil {
 		stdouterr, err = pullRepo(p)
-
+		if err != nil {
+			return nil, "", err
+		}
 	} else {
 		cmd := exec.Command("git", "clone", gitURL)
 		fmt.Println(cmd.Args)
@@ -38,7 +41,7 @@ func cloneRepo(msg ConfigRequest) ([]byte, string, error) {
 	if _, err := os.Stat(path); os.IsNotExist(err) {
 		createFile(msg, path)
 	} else {
-		err = os.Remove(path)
+		os.Remove(path)
 		createFile(msg, path)
 	}
 
@@ -70,7 +73,8 @@ func createFiles(path string) {
 	// create file if not exists
 	if os.IsNotExist(err) {
 		var file, err = os.Create(path)
-		if isError(err) {
+		if err != nil {
+			log.Printf("Error: %s", err.Error())
 			return
 		}
 		defer file.Close()
@@ -108,7 +112,7 @@ func writeFile(path string, msg ConfigRequest) {
 
 	if variables != nil {
 		for _, v := range *variables {
-			_, err = file.WriteString(v.Name + " = \"" + v.Value + "\" \n")
+			_, _ = file.WriteString(v.Name + " = \"" + v.Value + "\" \n")
 		}
 	}
 
@@ -119,15 +123,15 @@ func writeFile(path string, msg ConfigRequest) {
 	}
 }
 
-func deleteFile(path string) {
-	// delete file
-	var err = os.Remove(path)
-	if isError(err) {
-		return
-	}
-
-	log.Println("File Deleted")
-}
+// func deleteFile(path string) {
+// 	// delete file
+// 	err := os.Remove(path)
+// 	if err != nil {
+// 		log.Println(err.Error())
+// 		return
+// 	}
+// 	log.Println("File Deleted")
+// }
 
 func RemoveDir(path string) (err error) {
 	contents, err := filepath.Glob(path)
@@ -170,12 +174,4 @@ func Copy(src, dst string) error {
 		return err
 	}
 	return out.Close()
-}
-
-func isError(err error) bool {
-	if err != nil {
-		log.Println(err.Error())
-	}
-
-	return (err != nil)
 }
